@@ -13,6 +13,9 @@
       <UniqueIdentifier>{ad6e765e-4300-41dc-b185-05b019286785}</UniqueIdentifier>
       <Extensions>ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe</Extensions>
     </Filter>
+    <Filter Include="Header Files\Au">
+      <UniqueIdentifier>{3f37833a-579b-4cd7-b5bb-780d3322a090}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="rgm2max.cpp">
@@ -38,13 +41,13 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="AuModel.h">
-      <Filter>Header Files</Filter>
+      <Filter>Header Files\Au</Filter>
     </ClInclude>
     <ClInclude Include="AuVert.h">
-      <Filter>Header Files</Filter>
+      <Filter>Header Files\Au</Filter>
     </ClInclude>
     <ClInclude Include="AuFace.h">
-      <Filter>Header Files</Filter>
+      <Filter>Header Files\Au</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
