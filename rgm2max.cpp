@@ -34,7 +34,7 @@ public:
 	virtual const TCHAR *	OtherMessage2();			// Other message #2
 	virtual unsigned int	Version();					// Version number * 100 (i.e. v3.01 = 301)
 	virtual void			ShowAbout(HWND hWnd);		// Show DLL's "About..." box
-	std::map<std::string, short> nodeLookupTable;
+	std::map<short, std::wstring> nodeLookupTable;
 	unsigned short			nodeCounter = 0;
 	unsigned short			bipedalCounter = 0;
 	AuModel					currentModel;
@@ -42,10 +42,11 @@ public:
 	virtual int				DoImport(const TCHAR *name,ImpInterface *i,Interface *gi, BOOL suppressPrompts=FALSE);	// Import file
 	virtual char*			fgetstring(FILE* file);
 	virtual void			parseNames(FILE* file);
-	virtual void			parseFile(FILE* file, Interface* ip);
+	virtual void			parseFile(FILE* file, ImpInterface* ii, Interface* ip);
 	virtual void			parseNewNode(FILE* file);
-	virtual void			renderMeshIfExists();
-	virtual int				parseMesh(FILE* file, Interface* ip);
+	virtual int				renderMesh(ImpInterface* ii);
+	virtual int				parseMesh(FILE* file, ImpInterface* ii, Interface* ip);
+	virtual int				parseRig(FILE* file, Interface* ip);
 };
 
 
@@ -61,7 +62,7 @@ public:
 	virtual const TCHAR* Category() 				{ return GetString(IDS_CATEGORY); }
 
 	virtual const TCHAR* InternalName() 			{ return _T("rgm2max"); }	// returns fixed parsable name (scripter-visible name)
-	virtual HINSTANCE HInstance() 					{ return hInstance; }					// returns owning module handle
+	virtual HINSTANCE HInstance() 					{ return hInstance; }		// returns owning module handle
 	
 
 };
@@ -156,10 +157,9 @@ void rgm2max::ShowAbout(HWND /*hWnd*/)
 	// Optional
 }
 
-int rgm2max::DoImport(const TCHAR* name, ImpInterface* ii, Interface* ip, BOOL suppressPrompts)
+int rgm2max::DoImport(const TCHAR* name, ImpInterface* ii, Interface* ip, BOOL /*suppressPrompts*/)
 {
 	#pragma message(TODO("Implement the actual file import here and"))	
-
 	//if(!suppressPrompts)
 	//	DialogBoxParam(hInstance, 
 	//			MAKEINTRESOURCE(IDD_PANEL), 
@@ -183,16 +183,15 @@ int rgm2max::DoImport(const TCHAR* name, ImpInterface* ii, Interface* ip, BOOL s
 	}
 	fseek(file, 11, SEEK_CUR);
 	parseNames(file);
-	parseFile(file, ip);
+	parseFile(file, ii, ip);
 	fclose(file);
-
 	return TRUE;
 }
 
 char* rgm2max::fgetstring(FILE* file)
 {
 	int mem = 0;
-	char* str = (char*)MAX_malloc(1);
+	char* str = (char*)malloc(1);
 	char next_read = fgetc(file);
 	str[mem] = next_read;
 	while (true)
@@ -213,34 +212,48 @@ char* rgm2max::fgetstring(FILE* file)
 
 void rgm2max::parseNames(FILE* file)
 {
-	const char* root = fgetstring(file);
+	fgetstring(file);
 	int childrenRemaining = 0;
 	fread(&childrenRemaining, 1, 1, file);
 	while (childrenRemaining > 0)
 	{
-		const char* nextChild = fgetstring(file);
+		std::string nextChild = fgetstring(file);
 		int nextAmountChildren = 0;
 		fread(&nextAmountChildren, 1, 1, file);
-		nodeLookupTable[nextChild] = nodeCounter;
+		nodeLookupTable[nodeCounter] = std::wstring(nextChild.begin(), nextChild.end());
 		nodeCounter++;
 		childrenRemaining += nextAmountChildren;
 		--childrenRemaining;
 	}
 }
 
-void rgm2max::parseFile(FILE* file, Interface* ip)
+void rgm2max::parseFile(FILE* file, ImpInterface* ii, Interface* ip)
 {
 	int nextByte = fgetc(file);
 	for (int i = nextByte; i != -1; i = nextByte)
 	{
 		switch (i)
 		{
-			case 0x2A:
-				renderMeshIfExists();
+			case 0x2A: //new node
 				parseNewNode(file);
-				if (parseMesh(file, ip) != 0)
+				if (parseMesh(file, ii, ip) != 0)
 					return;
 				break;
+			case 0x6D: //anim data
+				MessageBoxA(ip->GetMAXHWnd(), "Error 6D: RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				return;
+			case 0x70: //??? Not yet supported
+				MessageBoxA(ip->GetMAXHWnd(), "Error 70: RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				return;
+			case 0x71: //rigging data
+				MessageBoxA(ip->GetMAXHWnd(), "Error 71: RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				return;
+			case 0x72: //??? Not yet supported
+				MessageBoxA(ip->GetMAXHWnd(), "Error 72: RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				return;
+			case 0x73: //scale factor. Maybe we can support this if we find an example of it?
+				MessageBoxA(ip->GetMAXHWnd(), "Error 73: RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				return;
 
 		}
 		nextByte = fgetc(file);
@@ -255,7 +268,7 @@ void rgm2max::parseNewNode(FILE* file)
 	currentModel = model;
 }
 
-int rgm2max::parseMesh(FILE* file, Interface* ip)
+int rgm2max::parseMesh(FILE* file, ImpInterface* ii, Interface* ip)
 {
 	Matrix3 matrix;
 	Point3 row1;
@@ -278,6 +291,7 @@ int rgm2max::parseMesh(FILE* file, Interface* ip)
 	fread(&row4.z, 4, 1, file);
 	fread(&row4.y, 4, 1, file);
 	matrix.SetRow(3, row4);
+	currentModel.nodePos = matrix;
 
 	fread(&currentModel.numVerts, 4, 1, file);
 	if (currentModel.numVerts > 0)
@@ -289,10 +303,10 @@ int rgm2max::parseMesh(FILE* file, Interface* ip)
 			MessageBoxA(ip->GetMAXHWnd(), "RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
 			return 1;
 		}
-		currentModel.verts = (AuVert**)MAX_malloc(sizeof(AuVert) * currentModel.numVerts);
+		currentModel.verts = new AuVert*[currentModel.numVerts];
 		for (int i = 0; i < currentModel.numVerts; i++)
 		{
-			AuVert* vert;
+			AuVert* vert = new AuVert;
 			fread(&vert->x, 4, 1, file);
 			fread(&vert->z, 4, 1, file);
 			fread(&vert->y, 4, 1, file);
@@ -306,20 +320,102 @@ int rgm2max::parseMesh(FILE* file, Interface* ip)
 			currentModel.verts[i] = vert;
 		}
 		fread(&currentModel.numFaces, 4, 1, file);
-		currentModel.verts = (AuVert**)MAX_malloc(sizeof(AuFace) * currentModel.numFaces);
+		currentModel.faces = new AuFace*[currentModel.numFaces];
 		for (int i = 0; i < currentModel.numFaces; i++)
 		{
-			AuFace* face;
-			fread(&face->indexX, 4, 1, file);
-			fread(&face->indexZ, 4, 1, file);
-			fread(&face->indexY, 4, 1, file);
+			AuFace* face = new AuFace;
+			fread(&face->indexX, 2, 1, file);
+			fread(&face->indexZ, 2, 1, file);
+			fread(&face->indexY, 2, 1, file);
 			currentModel.faces[i] = face;
+		}
+		if (renderMesh(ii) == 1)
+		{
+			MessageBoxA(ip->GetMAXHWnd(), "Unable to create node. Please submit RGM for review.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+			return 1;
 		}
 	}
 	return 0;
 }
 	
-void rgm2max::renderMeshIfExists()
+int rgm2max::renderMesh(ImpInterface* ii)
 {
-	return;
+	Matrix3 transform;
+	Point3 p;
+	Point3 n;
+	Point3 r;
+	TriObject* object = CreateNewTriObject();
+	Mesh* m = &object->GetMesh();
+
+	m->setNumVerts(currentModel.numVerts); // set num verts
+	m->setNumTVerts(currentModel.numVerts); // set num tverts
+	m->setNumFaces(currentModel.numFaces); // set num faces
+
+	for (int i = 0; i < m->getNumVerts(); i++) // set verts, tverts, and normals
+	{
+		p.x = currentModel.verts[i]->x;
+		p.y = currentModel.verts[i]->y;
+		p.z = currentModel.verts[i]->z;
+
+		n.x = currentModel.verts[i]->nx;
+		n.y = currentModel.verts[i]->ny;
+		n.z = currentModel.verts[i]->nz;
+
+		m->setVert(i, p);
+		//m->setNormal(i, n);
+		delete currentModel.verts[i];
+	}
+
+	for (int i = 0; i < m->getNumFaces(); i++) // set faces
+	{
+		m->faces[i].setVerts(currentModel.faces[i]->indexX,
+			currentModel.faces[i]->indexY,
+			currentModel.faces[i]->indexZ);
+		delete currentModel.faces[i];
+	}
+
+	
+	// Setup UVW maps
+	m->setNumMaps(2); // 2 is minimum, 0 being color and 1 texture
+	m->setMapSupport(0, FALSE); // no color
+	m->setMapSupport(1, TRUE); // use texture
+
+	m->setNumMapVerts(1, currentModel.numVerts);
+	for (int i = 0; i < currentModel.numVerts; ++i) // Create texture verts
+	{
+		m->mapVerts(1)[i].Set(currentModel.verts[i]->u, currentModel.verts[i]->v, 0);
+	}
+
+	for (int i = 0; i < currentModel.numFaces; ++i) // Create texture faces
+	{
+		m->mapFaces(1)[i].setTVerts(currentModel.faces[i]->indexX,
+			currentModel.faces[i]->indexY,
+			currentModel.faces[i]->indexZ);
+	}
+	
+
+	// Fixup mesh
+	//m->buildNormals();
+	//m->buildBoundingBox();
+	//m->InvalidateEdgeList();
+	//m->InvalidateGeomCache();
+
+	ImpNode* node = ii->CreateNode();
+	if (!node)
+	{
+		return 1;
+	}
+	node->Reference(object);
+
+	//node->SetName(nodeLookupTable.find(currentModel.index)->second.c_str());
+	node->GetINode()->SetNodeTM(0, currentModel.nodePos);
+	ii->AddNodeToScene(node);
+	node->SetName(_T("Test"));
+	ii->RedrawViews();
+	return 0;
+}
+
+int rgm2max::parseRig(FILE* file, Interface* ip)
+{
+	return 0;
 }

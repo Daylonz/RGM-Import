@@ -34,9 +34,8 @@
 //SIMPLE TYPE
 
 #include "AuModel.h"
-#include "AuFace.h"
-
 #include <impexp.h>
+#include <impapi.h>
 #include <direct.h>
 #include <commdlg.h>
 
