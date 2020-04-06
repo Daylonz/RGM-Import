@@ -49,6 +49,9 @@
     <ClInclude Include="AuFace.h">
       <Filter>Header Files\Au</Filter>
     </ClInclude>
+    <ClInclude Include="AuMaterial.h">
+      <Filter>Header Files\Au</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="rgm2max.rc">

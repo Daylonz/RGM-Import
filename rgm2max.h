@@ -31,6 +31,9 @@
 #include <string>
 #include <sstream>
 #include <iskin.h>
+#include <MeshNormalSpec.h>
+#include "imtl.h"
+#include <stdmat.h>
 //SIMPLE TYPE
 
 #include "AuModel.h"

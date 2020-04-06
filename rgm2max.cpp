@@ -44,9 +44,10 @@ public:
 	virtual void			parseNames(FILE* file);
 	virtual void			parseFile(FILE* file, ImpInterface* ii, Interface* ip);
 	virtual void			parseNewNode(FILE* file);
-	virtual int				renderMesh(ImpInterface* ii);
+	virtual int				renderMesh(ImpInterface* ii, Interface* ip);
 	virtual int				parseMesh(FILE* file, ImpInterface* ii, Interface* ip);
 	virtual int				parseRig(FILE* file, Interface* ip);
+	StdMat*					GetMatForFlag(int flag, std::string name);
 };
 
 
@@ -229,6 +230,11 @@ void rgm2max::parseNames(FILE* file)
 
 void rgm2max::parseFile(FILE* file, ImpInterface* ii, Interface* ip)
 {
+	int fps;
+	int framesInScene;
+	fread(&fps, 4, 1, file);
+	fread(&framesInScene, 4, 1, file);
+
 	int nextByte = fgetc(file);
 	for (int i = nextByte; i != -1; i = nextByte)
 	{
@@ -253,6 +259,10 @@ void rgm2max::parseFile(FILE* file, ImpInterface* ii, Interface* ip)
 				return;
 			case 0x73: //scale factor. Maybe we can support this if we find an example of it?
 				MessageBoxA(ip->GetMAXHWnd(), "Error 73: RGM contains type not yet supported.", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				return;
+			default:
+				MessageBoxA(ip->GetMAXHWnd(), "Error D: Unknown byte at offset...", "RGM Import - By Daylon", MB_ICONINFORMATION);
+				MessageBoxA(ip->GetMAXHWnd(), std::to_string(ftell(file)).c_str(), "RGM Import - By Daylon", MB_ICONINFORMATION);
 				return;
 
 		}
@@ -329,7 +339,28 @@ int rgm2max::parseMesh(FILE* file, ImpInterface* ii, Interface* ip)
 			fread(&face->indexY, 2, 1, file);
 			currentModel.faces[i] = face;
 		}
-		if (renderMesh(ii) == 1)
+
+		fread(&currentModel.numMaterialIDs, 4, 1, file); // read the number of material IDs
+		currentModel.materialIDCounts = new int*[currentModel.numMaterialIDs];
+		for (int i = 0; i < currentModel.numMaterialIDs; i++)
+		{
+			int* next = new int;
+			fread(next, 4, 1, file);
+			currentModel.materialIDCounts[i] = next;
+		}
+
+		fread(&currentModel.numMaterials, 4, 1, file); // read the number of materials
+		currentModel.materials = new AuMaterial*[currentModel.numMaterials];
+		for (int i = 0; i < currentModel.numMaterials; i++)
+		{
+			AuMaterial* newMat = new AuMaterial;
+			newMat->name = fgetstring(file);
+			int charsToSkip = 39 - newMat->name.length();
+			fseek(file, charsToSkip, SEEK_CUR);
+			newMat->materialFlag = fgetc(file);
+			currentModel.materials[i] = newMat;
+		}
+		if (renderMesh(ii, ip) == 1)
 		{
 			MessageBoxA(ip->GetMAXHWnd(), "Unable to create node. Please submit RGM for review.", "RGM Import - By Daylon", MB_ICONINFORMATION);
 			return 1;
@@ -338,7 +369,7 @@ int rgm2max::parseMesh(FILE* file, ImpInterface* ii, Interface* ip)
 	return 0;
 }
 	
-int rgm2max::renderMesh(ImpInterface* ii)
+int rgm2max::renderMesh(ImpInterface* ii, Interface* ip)
 {
 	Matrix3 transform;
 	Point3 p;
@@ -351,19 +382,13 @@ int rgm2max::renderMesh(ImpInterface* ii)
 	m->setNumTVerts(currentModel.numVerts); // set num tverts
 	m->setNumFaces(currentModel.numFaces); // set num faces
 
-	for (int i = 0; i < m->getNumVerts(); i++) // set verts, tverts, and normals
+	for (int i = 0; i < m->getNumVerts(); i++) // set verts, tverts
 	{
 		p.x = currentModel.verts[i]->x;
 		p.y = currentModel.verts[i]->y;
 		p.z = currentModel.verts[i]->z;
 
-		n.x = currentModel.verts[i]->nx;
-		n.y = currentModel.verts[i]->ny;
-		n.z = currentModel.verts[i]->nz;
-
 		m->setVert(i, p);
-		//m->setNormal(i, n);
-		delete currentModel.verts[i];
 	}
 
 	for (int i = 0; i < m->getNumFaces(); i++) // set faces
@@ -371,8 +396,61 @@ int rgm2max::renderMesh(ImpInterface* ii)
 		m->faces[i].setVerts(currentModel.faces[i]->indexX,
 			currentModel.faces[i]->indexY,
 			currentModel.faces[i]->indexZ);
-		delete currentModel.faces[i];
+		m->faces[i].setSmGroup(1);
 	}
+
+	m->SpecifyNormals();
+	MeshNormalSpec* nspec = m->GetSpecifiedNormals();
+	nspec->ClearNormals();
+	nspec->SetNumNormals(currentModel.numVerts);
+	nspec->SetNumFaces(currentModel.numFaces);
+	for (int i = 0; i < m->getNumVerts(); i++) // set normals
+	{
+		n.x = currentModel.verts[i]->nx;
+		n.y = currentModel.verts[i]->ny;
+		n.z = currentModel.verts[i]->nz;
+
+		nspec->Normal(i) = n;
+		nspec->SetNormalExplicit(i, TRUE);
+	}
+	MeshNormalFace* faces = nspec->GetFaceArray();
+	for (int i = 0; i < m->getNumFaces(); i++)
+	{
+		faces[i].SpecifyAll();
+		faces[i].SetNormalID(0, currentModel.faces[i]->indexX);
+		faces[i].SetNormalID(1, currentModel.faces[i]->indexY);
+		faces[i].SetNormalID(2, currentModel.faces[i]->indexZ);
+	}
+	/*
+	for (int i = 0; i < m->getNumVerts(); i++) // set normals
+	{
+		n.x = currentModel.verts[i]->nx;
+		n.y = currentModel.verts[i]->ny;
+		n.z = currentModel.verts[i]->nz;
+
+		m->setNormal(i, n);
+	}
+
+	MeshNormalSpec* nspec = m->GetSpecifiedNormals();
+
+	if (nspec && !nspec->GetFlag(MESH_NORMAL_NORMALS_BUILT))
+	{
+		m->SpecifyNormals();
+		nspec = m->GetSpecifiedNormals();
+	}
+	nspec->ClearFlag(MESH_NORMAL_NORMALS_BUILT);
+	nspec->CheckNormals();
+	Point3* normals = nspec->GetNormalArray();
+	for (int i = 0; i < nspec->GetNumNormals(); i++)
+	{
+		n.x = currentModel.verts[i]->nx;
+		n.y = currentModel.verts[i]->ny;
+		n.z = currentModel.verts[i]->nz;
+		normals[i] = n;
+		delete currentModel.verts[i];
+	}
+	nspec->SetAllExplicit(true);
+	*/
 
 	
 	// Setup UVW maps
@@ -384,6 +462,7 @@ int rgm2max::renderMesh(ImpInterface* ii)
 	for (int i = 0; i < currentModel.numVerts; ++i) // Create texture verts
 	{
 		m->mapVerts(1)[i].Set(currentModel.verts[i]->u, currentModel.verts[i]->v, 0);
+		delete currentModel.verts[i];
 	}
 
 	for (int i = 0; i < currentModel.numFaces; ++i) // Create texture faces
@@ -391,14 +470,37 @@ int rgm2max::renderMesh(ImpInterface* ii)
 		m->mapFaces(1)[i].setTVerts(currentModel.faces[i]->indexX,
 			currentModel.faces[i]->indexY,
 			currentModel.faces[i]->indexZ);
+		delete currentModel.faces[i];
 	}
-	
+
+	// Assign material IDs
+
+	int faceIndex = 0;
+	for (int i = 0; i < currentModel.numMaterialIDs; i++)
+	{
+		for (int j = 0; j < *currentModel.materialIDCounts[i]; j++)
+		{
+			m->faces[faceIndex].setMatID(i);
+			faceIndex++;
+		}
+	}
+
+	// Create multi/sub material
+	MultiMtl* mat = NewDefaultMultiMtl();
+
+	mat->SetNumSubMtls(currentModel.numMaterials);
+	for (int i = 0; i < currentModel.numMaterials; i++)
+	{
+		StdMat* nextMat = GetMatForFlag(currentModel.materials[i]->materialFlag, currentModel.materials[i]->name); // Get base material from flag
+		mat->SetSubMtl(i, nextMat);
+		GetCOREInterface()->ActivateTexture(nextMat, mat);
+	}
 
 	// Fixup mesh
-	//m->buildNormals();
-	//m->buildBoundingBox();
-	//m->InvalidateEdgeList();
-	//m->InvalidateGeomCache();
+	m->buildNormals();
+	m->buildBoundingBox();
+	m->InvalidateEdgeList();
+	m->InvalidateGeomCache();
 
 	ImpNode* node = ii->CreateNode();
 	if (!node)
@@ -406,11 +508,12 @@ int rgm2max::renderMesh(ImpInterface* ii)
 		return 1;
 	}
 	node->Reference(object);
+	node->GetINode()->SetMtl(mat);
 
-	//node->SetName(nodeLookupTable.find(currentModel.index)->second.c_str());
-	node->GetINode()->SetNodeTM(0, currentModel.nodePos);
+	node->SetName(nodeLookupTable.find(currentModel.index - 1)->second.c_str());
+	//node->GetINode()->SetNodeTM(0, currentModel.nodePos);
 	ii->AddNodeToScene(node);
-	node->SetName(_T("Test"));
+	//node->SetName(_T("Test"));
 	ii->RedrawViews();
 	return 0;
 }
@@ -418,4 +521,69 @@ int rgm2max::renderMesh(ImpInterface* ii)
 int rgm2max::parseRig(FILE* file, Interface* ip)
 {
 	return 0;
+}
+
+StdMat* rgm2max::GetMatForFlag(int flag, std::string name)
+{
+	StdMat2* result = NewDefaultStdMat();
+
+	BitmapTex* bm = NewDefaultBitmapTex(); // Create new Bitmap
+	bm->SetAlphaAsMono(TRUE);
+
+	std::string mapNameS = name + ".dds";
+	std::wstring mapNameW(mapNameS.begin(), mapNameS.end());
+	bm->SetMapName(mapNameW.c_str(), FALSE); // Assign name to Bitmap
+
+	switch (flag)
+	{
+		case MATERIAL_DIFFUSE_FACETED_TWOSIDED:
+			result->EnableMap(ID_DI, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetFaceted(TRUE);
+			result->SetTwoSided(TRUE);
+			break;
+		case MATERIAL_DIFFUSE_FACETED:
+			result->EnableMap(ID_DI, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetFaceted(TRUE);
+			break;
+		case MATERIAL_DIFFUSE_TWOSIDED:
+			result->EnableMap(ID_DI, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetTwoSided(TRUE);
+			break;
+		case MATERIAL_DIFFUSE:
+			result->EnableMap(ID_DI, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			break;
+		case MATERIAL_OPAQUE_FACETED_TWOSIDED:
+			result->EnableMap(ID_DI, TRUE);
+			result->EnableMap(ID_OP, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetSubTexmap(ID_OP, bm);
+			result->SetFaceted(TRUE);
+			result->SetTwoSided(TRUE);
+			break;
+		case MATERIAL_OPAQUE_FACETED:
+			result->EnableMap(ID_DI, TRUE);
+			result->EnableMap(ID_OP, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetSubTexmap(ID_OP, bm);
+			result->SetFaceted(TRUE);
+			break;
+		case MATERIAL_OPAQUE_TWOSIDED:
+			result->EnableMap(ID_DI, TRUE);
+			result->EnableMap(ID_OP, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetSubTexmap(ID_OP, bm);
+			result->SetTwoSided(TRUE);
+			break;
+		case MATERIAL_OPAQUE:
+			result->EnableMap(ID_DI, TRUE);
+			result->EnableMap(ID_OP, TRUE);
+			result->SetSubTexmap(ID_DI, bm);
+			result->SetSubTexmap(ID_OP, bm);
+			break;
+	}
+	return result;
 }

@@ -56,6 +56,7 @@
   <ItemGroup>
     <ClInclude Include="3dsmaxsdk_preinclude.h" />
     <ClInclude Include="AuFace.h" />
+    <ClInclude Include="AuMaterial.h" />
     <ClInclude Include="AuModel.h" />
     <ClInclude Include="AuVert.h" />
     <ClInclude Include="rgm2max.h" />
